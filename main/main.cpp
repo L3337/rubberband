@@ -44,7 +44,28 @@
 #include <sys/time.h>
 #endif
 
-#ifdef _WIN32
+#if defined(_WIN32) || \
+    defined(_WIN64) || \
+    defined(__MINGW32__) || \
+    defined(__MINGW64__)
+
+    #define IS_WINDOWS
+    #include <wchar.h>
+    #include <windows.h>
+    #include <shlwapi.h>
+    #include "../src/ext/getoptW/getoptW.h"
+    #define PATHCHAR wchar_t
+    #define arg_atof _wtof
+    #define arg_atoi _wtoi
+#else
+    #undef IS_WINDOWS
+    #define PATHCHAR char
+    #define arg_atof atof
+    #define arg_atoi atoi
+#endif
+
+
+#ifdef IS_WINDOWS
 using RubberBand::gettimeofday;
 #endif
 
@@ -61,28 +82,37 @@ using RubberBand::RubberBandStretcher;
 using std::cerr;
 using std::endl;
 
-double tempo_convert(const char *str)
+double tempo_convert(const PATHCHAR *str)
 {
-    char *d = strchr((char *)str, ':');
+#ifdef IS_WINDOWS
+    PATHCHAR *d = strchr((PATHCHAR *)str, ':');
+#else
+    PATHCHAR *d = strchr((PATHCHAR *)str, ':');
+#endif
 
     if (!d || !*d) {
-        double m = atof(str);
+        double m = arg_atof(str);
         if (m != 0.0) return 1.0 / m;
         else return 1.0;
     }
 
-    char *a = strdup(str);
-    char *b = strdup(d+1);
+#ifdef IS_WINDOWS
+    PATHCHAR *a = wcsdup(str);
+    PATHCHAR *b = wcsdup(d+1);
+#else
+    PATHCHAR *a = strdup(str);
+    PATHCHAR *b = strdup(d+1);
+#endif
     a[d-str] = '\0';
-    double m = atof(a);
-    double n = atof(b);
+    double m = arg_atof(a);
+    double n = arg_atof(b);
     free(a);
     free(b);
     if (n != 0.0 && m != 0.0) return m / n;
     else return 1.0;
 }
 
-int main(int argc, char **argv)
+int _main(int argc, PATHCHAR **argv)
 {
     double ratio = 1.0;
     double duration = 0.0;
@@ -129,7 +159,13 @@ int main(int argc, char **argv)
 
     bool ignoreClipping = false;
 
+#ifdef IS_WINDOWS
+    // TODO
+    std::wstring wmyName(argv[0]);
+    std::string myName(wmyName,begin(), wmyName.end());
+#else
     std::string myName(argv[0]);
+#endif
 
     bool isR3 =
         ((myName.size() > 3 &&
@@ -142,6 +178,49 @@ int main(int argc, char **argv)
     while (1) {
         int optionIndex = 0;
 
+#ifdef IS_WINDOWS
+        static struct option longOpts[] = {
+            { L"help",          0, 0, L'h' },
+            { L"full-help",     0, 0, L'H' },
+            { L"version",       0, 0, L'V' },
+            { L"time",          1, 0, L't' },
+            { L"tempo",         1, 0, L'T' },
+            { L"duration",      1, 0, L'D' },
+            { L"pitch",         1, 0, L'p' },
+            { L"frequency",     1, 0, L'f' },
+            { L"crisp",         1, 0, L'c' },
+            { L"crispness",     1, 0, L'c' },
+            { L"debug",         1, 0, L'd' },
+            { L"realtime",      0, 0, L'R' },
+            { L"loose",         0, 0, L'L' },
+            { L"precise",       0, 0, L'P' },
+            { L"formant",       0, 0, L'F' },
+            { L"no-threads",    0, 0, L'0' },
+            { L"no-transients", 0, 0, L'1' },
+            { L"no-lamination", 0, 0, L'.' },
+            { L"centre-focus",  0, 0, L'7' },
+            { L"window-long",   0, 0, L'>' },
+            { L"window-short",  0, 0, L'<' },
+            { L"bl-transients", 0, 0, L'8' },
+            { L"detector-perc", 0, 0, L'5' },
+            { L"detector-soft", 0, 0, L'6' },
+            { L"smoothing",     0, 0, L'9' },
+            { L"pitch-hq",      0, 0, L'%' },
+            { L"threads",       0, 0, L'@' },
+            { L"quiet",         0, 0, L'q' },
+            { L"timemap",       1, 0, L'M' },
+            { L"freqmap",       1, 0, L'Q' },
+            { L"pitchmap",      1, 0, L'C' },
+            { L"ignore-clipping", 0, 0, L'i' },
+            { L"fast",          0, 0, L'2' },
+            { L"fine",          0, 0, L'3' },
+            { 0, 0, 0, 0 }
+        };
+
+        int optionChar = getoptW_long(argc, argv,
+                                     "t:p:d:RLPFc:f:T:D:qhHVM:23",
+                                     longOpts, &optionIndex);
+#else
         static struct option longOpts[] = {
             { "help",          0, 0, 'h' },
             { "full-help",     0, 0, 'H' },
@@ -183,18 +262,19 @@ int main(int argc, char **argv)
         int optionChar = getopt_long(argc, argv,
                                      "t:p:d:RLPFc:f:T:D:qhHVM:23",
                                      longOpts, &optionIndex);
+#endif
         if (optionChar == -1) break;
 
         switch (optionChar) {
         case 'h': help = true; break;
         case 'H': fullHelp = true; break;
         case 'V': version = true; break;
-        case 't': ratio *= atof(optarg); haveRatio = true; break;
+        case 't': ratio *= arg_atof(optarg); haveRatio = true; break;
         case 'T': ratio *= tempo_convert(optarg); haveRatio = true; break;
-        case 'D': duration = atof(optarg); haveRatio = true; break;
-        case 'p': pitchshift = atof(optarg); haveRatio = true; break;
-        case 'f': frequencyshift = atof(optarg); haveRatio = true; break;
-        case 'd': debug = atoi(optarg); break;
+        case 'D': duration = arg_atof(optarg); haveRatio = true; break;
+        case 'p': pitchshift = arg_atof(optarg); haveRatio = true; break;
+        case 'f': frequencyshift = arg_atof(optarg); haveRatio = true; break;
+        case 'd': debug = arg_atoi(optarg); break;
         case 'R': realtime = true; break;
         case 'L': precisiongiven = true; break;
         case 'P': precisiongiven = true; break;
@@ -211,7 +291,7 @@ int main(int argc, char **argv)
         case '8': transients = BandLimitedTransients; crispchanged = true; break;
         case '9': smoothing = true; crispchanged = true; break;
         case '%': hqpitch = true; break;
-        case 'c': crispness = atoi(optarg); break;
+        case 'c': crispness = arg_atoi(optarg); break;
         case 'q': quiet = true; break;
         case 'M': timeMapFile = optarg; break;
         case 'Q': freqMapFile = optarg; freqOrPitchMapSpecified = true; break;
@@ -541,8 +621,15 @@ int main(int argc, char **argv)
         }
     }
 
-    char *fileName = strdup(argv[optind++]);
-    char *fileNameOut = strdup(argv[optind++]);
+#ifdef IS_WINDOWS
+    std::wstring wfileName(argv[optind++]);
+    std::wstring wfileNameOut(argv[optind++]);
+    PATHCHAR *fileName = wfileName.c_str();
+    PATHCHAR *fileNameOut = wfileNameOut.c_str();
+#else
+    PATHCHAR *fileName = strdup(argv[optind++]);
+    PATHCHAR *fileNameOut = strdup(argv[optind++]);
+#endif
 
     std::string extIn, extOut;
     for (int i = strlen(fileName); i > 0; ) {
@@ -565,7 +652,11 @@ int main(int argc, char **argv)
     memset(&sfinfo, 0, sizeof(SF_INFO));
     memset(&sfinfoOut, 0, sizeof(SF_INFO));
 
+#ifdef IS_WINDOWS
+    sndfile = sf_wchar_open(fileName, SFM_READ, &sfinfo);
+#else
     sndfile = sf_open(fileName, SFM_READ, &sfinfo);
+#endif
     if (!sndfile) {
         cerr << "ERROR: Failed to open input file \"" << fileName << "\": "
              << sf_strerror(sndfile) << endl;
@@ -621,7 +712,11 @@ int main(int argc, char **argv)
         }
     }
     
+#ifdef IS_WINDOWS
+    sndfileOut = sf_wchar_open(fileNameOut, SFM_WRITE, &sfinfoOut) ;
+#else
     sndfileOut = sf_open(fileNameOut, SFM_WRITE, &sfinfoOut) ;
+#endif
     if (!sndfileOut) {
         cerr << "ERROR: Failed to open output file \"" << fileNameOut << "\" for writing: "
              << sf_strerror(sndfileOut) << endl;
@@ -695,7 +790,7 @@ int main(int argc, char **argv)
         cerr << " and initial frequency ratio " << frequencyshift << endl;
     }
     
-#ifdef _WIN32
+#ifdef IS_WINDOWS
     RubberBand::
 #endif
     timeval tv;
@@ -1063,7 +1158,7 @@ int main(int argc, char **argv)
              << ", error: " << int(countOut) - lrint(countIn * ratio)
              << endl;
 
-#ifdef _WIN32
+#ifdef IS_WINDOWS
         RubberBand::
 #endif
             timeval etv;
@@ -1087,4 +1182,14 @@ int main(int argc, char **argv)
     return 0;
 }
 
-
+#ifdef IS_WINDOWS
+    int main(){
+	int argc;
+	LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+        return _main(argc, argv);
+    }
+#else
+    int main(int argc, char** argv){
+        return _main(argc, argv);
+    }
+#endif
